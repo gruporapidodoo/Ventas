@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ventas x Dia x Mes - Odoo 18</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="layout">
+
+    <!-- ── Sidebar ───────────────────────────────────────────────────────── -->
+    <aside class="sidebar">
+        <div class="sidebar-logo">
+            <div class="icon">V</div>
+            <div>
+                <h1>Ventas</h1>
+                <span>x Dia x Mes</span>
+            </div>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-section-title">Vistas</div>
+            <div class="nav-item active" data-page="dashboard">
+                <span class="nav-icon">&#9632;</span> Dashboard
+            </div>
+            <div class="nav-item" data-page="dia">
+                <span class="nav-icon">&#9788;</span> Ventas del Dia
+            </div>
+            <div class="nav-item" data-page="mes">
+                <span class="nav-icon">&#9783;</span> Ventas del Mes
+            </div>
+            <div class="nav-item" data-page="empresas">
+                <span class="nav-icon">&#9733;</span> Por Empresa
+            </div>
+            <div class="nav-item" data-page="detalle">
+                <span class="nav-icon">&#9776;</span> Detalle Ordenes
+            </div>
+        </div>
+
+        <div class="sidebar-footer">
+            <div class="connection-status">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Conectando...</span>
+            </div>
+            <div style="margin-top:12px;font-size:13px;font-weight:600;color:var(--text)" id="userName"></div>
+            <button onclick="logout()" style="margin-top:8px;width:100%;padding:8px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:12px;font-family:inherit">Cerrar Sesion</button>
+        </div>
+    </aside>
+
+    <!-- ── Main Content ──────────────────────────────────────────────────── -->
+    <main class="main">
+        <div class="header">
+            <h2 id="pageTitle">Dashboard</h2>
+            <div class="header-actions">
+                <select class="filter-select" id="companySelect" style="min-width:220px">
+                    <option value="all">Todas las Empresas</option>
+                </select>
+                <select class="filter-select" id="monthSelect"></select>
+                <button class="btn-refresh" id="btnRefresh" onclick="refreshData()">
+                    <span id="refreshIcon">&#8635;</span> Actualizar
+                </button>
+            </div>
+        </div>
+
+        <div id="globalError"></div>
+
+        <!-- ═══ DASHBOARD ═══ -->
+        <div class="page-section active" id="page-dashboard">
+            <!-- KPIs -->
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-label">Venta del Dia</span>
+                        <div class="kpi-icon day">&#9788;</div>
+                    </div>
+                    <div class="kpi-value positive" id="kpiDia">--</div>
+                    <div class="kpi-sub" id="kpiDiaOrdenes"></div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-label">Venta del Mes</span>
+                        <div class="kpi-icon month">&#9783;</div>
+                    </div>
+                    <div class="kpi-value" id="kpiMes">--</div>
+                    <div class="kpi-sub" id="kpiMesOrdenes"></div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-label">Meta Mensual</span>
+                        <div class="kpi-icon meta">&#9650;</div>
+                    </div>
+                    <div class="kpi-value" id="kpiMeta">--</div>
+                    <div class="kpi-sub" id="kpiMetaPct"></div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-label">Falta para Meta</span>
+                        <div class="kpi-icon falta">&#9660;</div>
+                    </div>
+                    <div class="kpi-value" id="kpiFalta">--</div>
+                </div>
+            </div>
+
+            <!-- Gauge -->
+            <div class="section-grid">
+                <div class="card gauge-card">
+                    <div class="card-title">Meta Mensual</div>
+                    <div class="gauge-container">
+                        <canvas id="gaugeChart" height="200"></canvas>
+                        <div class="gauge-label" id="gaugeLabel">0%</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Ventas por Dia del Mes</div>
+                    <canvas id="chartDiario" height="200"></canvas>
+                </div>
+            </div>
+
+            <!-- Top vendedores hoy -->
+            <div class="section-grid">
+                <div class="card">
+                    <div class="card-title">Top Vendedores - Hoy</div>
+                    <div id="rankingDia"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Top Vendedores - Mes</div>
+                    <div id="rankingMes"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ VENTAS DEL DIA ═══ -->
+        <div class="page-section" id="page-dia">
+            <div class="card">
+                <div class="card-title">Ventas de Hoy por Vendedor</div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>#</th><th>Vendedor</th><th style="text-align:right">Ordenes</th><th style="text-align:right">Monto (sin ITBMS)</th><th>Barra</th></tr></thead>
+                        <tbody id="tbDia"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ VENTAS DEL MES ═══ -->
+        <div class="page-section" id="page-mes">
+            <div class="card">
+                <div class="card-title">Ventas del Mes por Vendedor</div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>#</th><th>Vendedor</th><th style="text-align:right">Ordenes</th><th style="text-align:right">Monto (sin ITBMS)</th><th>Barra</th></tr></thead>
+                        <tbody id="tbMes"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ POR EMPRESA ═══ -->
+        <div class="page-section" id="page-empresas">
+            <div class="card">
+                <div class="card-title">Ventas del Mes por Empresa</div>
+                <div id="empresasGrid"></div>
+            </div>
+        </div>
+
+        <!-- ═══ DETALLE ORDENES ═══ -->
+        <div class="page-section" id="page-detalle">
+            <div class="card">
+                <div class="card-title">Ordenes de Venta Confirmadas</div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Orden</th><th>Cliente</th><th>Vendedor</th><th>Empresa</th><th>Fecha</th><th style="text-align:right">Monto (sin ITBMS)</th></tr></thead>
+                        <tbody id="tbDetalle"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </main>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

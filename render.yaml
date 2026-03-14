@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: ventas-dashboard
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: ODOO_URL
+        value: https://pestbuster.odoo.com
+      - key: ODOO_DB
+        value: psdc-inc-pestbuster-prod-20747552
+      - key: ODOO_USER
+        sync: false
+      - key: ODOO_PASSWORD
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
