@@ -21,8 +21,9 @@ except Exception as e:
 
 # ── Metas mensuales por company_id ───────────────────────────────────────────
 METAS = {
-    3: 83000,   # KITCHEN TOTAL SOLUTIONS (KTS) CORP.
-    8: 80000,   # RAPID POOLS, S.A.
+    3: 83000,    # KITCHEN TOTAL SOLUTIONS (KTS) CORP.
+    5: 250000,   # GSU HOLDINGS, S.A.
+    8: 80000,    # RAPID POOLS, S.A.
 }
 
 
@@ -335,6 +336,171 @@ def api_ventas_detalle():
             "vendedor": o["user_id"][1] if o.get("user_id") else "",
             "empresa": o["company_id"][1] if o.get("company_id") else "",
         } for o in orders])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── API: Vendedores (lista) ──────────────────────────────────────────────────
+
+@app.route("/api/vendedores")
+@login_required
+def api_vendedores():
+    try:
+        cd = _company_domain()
+        data = odoo.read_group(
+            "sale.order",
+            domain=[("state", "in", ["draft", "sent", "sale", "cancel"]), ("date_order", ">=", "2026-01-01")] + cd,
+            fields=["user_id"],
+            groupby=["user_id"],
+        )
+        resultado = []
+        for d in data:
+            if d.get("user_id"):
+                resultado.append({"id": d["user_id"][0], "nombre": d["user_id"][1]})
+        resultado.sort(key=lambda x: x["nombre"])
+        return jsonify(resultado)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── API: Resumen vendedor (KPIs cotizaciones) ───────────────────────────────
+
+@app.route("/api/vendedor/resumen")
+@login_required
+def api_vendedor_resumen():
+    """KPIs de un vendedor: hoy + acumulado del mes."""
+    try:
+        cd = _company_domain()
+        year = int(request.args.get("year", date.today().year))
+        month = int(request.args.get("month", date.today().month))
+        vendedor_id = request.args.get("vendedor_id")
+
+        domain_vendor = cd[:]
+        if vendedor_id and vendedor_id != "all":
+            domain_vendor += [("user_id", "=", int(vendedor_id))]
+
+        # --- HOY ---
+        today = date.today().isoformat()
+        domain_hoy = domain_vendor + [("date_order", ">=", f"{today} 00:00:00"), ("date_order", "<=", f"{today} 23:59:59")]
+
+        hoy_counts = {}
+        for state in ["draft", "sent", "sale", "cancel"]:
+            hoy_counts[state] = odoo.search_count("sale.order", [("state", "=", state)] + domain_hoy)
+
+        hoy_total = sum(hoy_counts.values())
+        hoy_cerradas = hoy_counts["sale"]
+
+        hoy_monto = odoo.read_group("sale.order", [("state", "=", "sale")] + domain_hoy, ["amount_untaxed:sum"], groupby=[])
+        hoy_monto_cerrado = hoy_monto[0].get("amount_untaxed", 0) if hoy_monto else 0
+
+        # --- MES ---
+        domain_mes = domain_vendor + _month_domain(year, month)
+
+        mes_counts = {}
+        for state in ["draft", "sent", "sale", "cancel"]:
+            mes_counts[state] = odoo.search_count("sale.order", [("state", "=", state)] + domain_mes)
+
+        mes_total = sum(mes_counts.values())
+        mes_cerradas = mes_counts["sale"]
+        mes_pendientes = mes_counts["draft"] + mes_counts["sent"]
+        mes_canceladas = mes_counts["cancel"]
+        tasa = round((mes_cerradas / mes_total * 100) if mes_total else 0, 1)
+
+        mes_monto = odoo.read_group("sale.order", [("state", "=", "sale")] + domain_mes, ["amount_untaxed:sum"], groupby=[])
+        mes_monto_cerrado = mes_monto[0].get("amount_untaxed", 0) if mes_monto else 0
+
+        mes_pend = odoo.read_group("sale.order", [("state", "in", ["draft", "sent"])] + domain_mes, ["amount_untaxed:sum"], groupby=[])
+        mes_monto_pendiente = mes_pend[0].get("amount_untaxed", 0) if mes_pend else 0
+
+        return jsonify({
+            "hoy_total": hoy_total,
+            "hoy_cerradas": hoy_cerradas,
+            "hoy_monto": hoy_monto_cerrado,
+            "mes_total": mes_total,
+            "mes_cerradas": mes_cerradas,
+            "mes_pendientes": mes_pendientes,
+            "mes_canceladas": mes_canceladas,
+            "tasa_cierre": tasa,
+            "mes_monto_cerrado": mes_monto_cerrado,
+            "mes_monto_pendiente": mes_monto_pendiente,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── API: Detalle cotizaciones vendedor ───────────────────────────────────────
+
+@app.route("/api/vendedor/cotizaciones")
+@login_required
+def api_vendedor_cotizaciones():
+    """Todas las cotizaciones de un vendedor con productos."""
+    try:
+        cd = _company_domain()
+        year = int(request.args.get("year", date.today().year))
+        month = int(request.args.get("month", date.today().month))
+        vendedor_id = request.args.get("vendedor_id")
+        estado = request.args.get("estado", "all")  # all, sale, draft, sent, cancel
+        periodo = request.args.get("periodo", "hoy")  # hoy, mes
+
+        if periodo == "hoy":
+            today = date.today().isoformat()
+            domain = [("date_order", ">=", f"{today} 00:00:00"), ("date_order", "<=", f"{today} 23:59:59")] + cd
+        else:
+            domain = _month_domain(year, month) + cd
+        if vendedor_id and vendedor_id != "all":
+            domain += [("user_id", "=", int(vendedor_id))]
+        if estado and estado != "all":
+            domain += [("state", "=", estado)]
+        else:
+            domain += [("state", "in", ["draft", "sent", "sale", "cancel"])]
+
+        orders = odoo.search_read(
+            "sale.order", domain,
+            ["name", "partner_id", "date_order", "amount_untaxed", "state", "user_id", "company_id"],
+            limit=200, order="date_order desc",
+        )
+
+        # Get lines for all orders
+        order_ids = [o["id"] for o in orders]
+        lines = []
+        if order_ids:
+            lines = odoo.search_read(
+                "sale.order.line",
+                [("order_id", "in", order_ids)],
+                ["order_id", "product_id", "product_uom_qty", "price_unit", "price_subtotal", "name"],
+                limit=1000,
+            )
+
+        # Group lines by order
+        lines_by_order = {}
+        for l in lines:
+            oid = l["order_id"][0]
+            if oid not in lines_by_order:
+                lines_by_order[oid] = []
+            lines_by_order[oid].append({
+                "producto": l["product_id"][1] if l.get("product_id") else l.get("name", "")[:60],
+                "cantidad": l["product_uom_qty"],
+                "precio_unit": l["price_unit"],
+                "subtotal": l["price_subtotal"],
+            })
+
+        estados = {"draft": "Borrador", "sent": "Enviada", "sale": "Confirmada", "cancel": "Cancelada"}
+
+        resultado = []
+        for o in orders:
+            resultado.append({
+                "numero": o["name"],
+                "cliente": o["partner_id"][1] if o.get("partner_id") else "",
+                "fecha": o["date_order"][:10] if o.get("date_order") else "",
+                "monto": o["amount_untaxed"],
+                "estado": estados.get(o["state"], o["state"]),
+                "estado_key": o["state"],
+                "vendedor": o["user_id"][1] if o.get("user_id") else "",
+                "empresa": o["company_id"][1] if o.get("company_id") else "",
+                "productos": lines_by_order.get(o["id"], []),
+            })
+
+        return jsonify(resultado)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

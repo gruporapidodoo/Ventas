@@ -71,6 +71,7 @@ const titles = {
     mes: "Ventas del Mes",
     empresas: "Ventas por Empresa",
     detalle: "Detalle de Ordenes",
+    vendedor: "Mi Detalle",
 };
 
 document.querySelectorAll(".nav-item").forEach(item => {
@@ -342,6 +343,96 @@ async function loadDetalle() {
     }
 }
 
+// ── Vendedor Detail ─────────────────────────────────────────────────────────
+
+async function loadVendedorResumen() {
+    try {
+        const vendedorId = document.getElementById("vendedorSelect").value;
+        const { year, month } = getMonthYear();
+        const companyId = getCompanyId();
+        let url = `/api/vendedor/resumen?year=${year}&month=${month}&vendedor_id=${vendedorId}`;
+        if (companyId !== "all") url += `&company_id=${companyId}`;
+
+        const res = await fetch(url);
+        const d = await res.json();
+        if (d.error) return;
+
+        // Hoy
+        document.getElementById("vkHoyTotal").textContent = d.hoy_total;
+        document.getElementById("vkHoyCerradas").textContent = d.hoy_cerradas;
+        document.getElementById("vkHoyMonto").textContent = fmt(d.hoy_monto);
+
+        // Mes
+        document.getElementById("vkMesTotal").textContent = d.mes_total;
+        document.getElementById("vkMesCerradas").textContent = d.mes_cerradas;
+        document.getElementById("vkMesPendientes").textContent = d.mes_pendientes;
+        document.getElementById("vkTasa").textContent = d.tasa_cierre + "%";
+        document.getElementById("vkMesMonto").textContent = fmt(d.mes_monto_cerrado);
+    } catch (e) { console.error(e); }
+}
+
+async function loadVendedorCotizaciones() {
+    try {
+        const vendedorId = document.getElementById("vendedorSelect").value;
+        const estado = document.getElementById("estadoSelect").value;
+        const periodo = document.getElementById("periodoSelect").value;
+        const { year, month } = getMonthYear();
+        const companyId = getCompanyId();
+        let url = `/api/vendedor/cotizaciones?year=${year}&month=${month}&vendedor_id=${vendedorId}&estado=${estado}&periodo=${periodo}`;
+        if (companyId !== "all") url += `&company_id=${companyId}`;
+
+        document.getElementById("cotTitulo").textContent = periodo === "hoy" ? "Cotizaciones de Hoy" : "Cotizaciones del Mes";
+
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.error) return;
+
+        const el = document.getElementById("cotizacionesList");
+        if (!data.length) {
+            el.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted)">Sin cotizaciones para este periodo</div>';
+            return;
+        }
+
+        el.innerHTML = data.map(c => `
+            <div class="cot-item fade-in">
+                <div class="cot-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+                    <div>
+                        <span class="cot-num">${c.numero}</span>
+                        <span class="cot-cliente">${c.cliente}</span>
+                        <div class="cot-fecha">${c.fecha} | ${c.vendedor} | ${c.empresa}</div>
+                    </div>
+                    <div class="cot-right">
+                        <span class="cot-monto" style="color:${c.estado_key==='sale'?'var(--success)':c.estado_key==='cancel'?'var(--danger)':'var(--text)'}">${fmt(c.monto)}</span>
+                        <span class="cot-badge ${c.estado_key}">${c.estado}</span>
+                    </div>
+                </div>
+                <div class="cot-body" style="display:none">
+                    <div class="cot-products">
+                        <div class="cot-prod-row cot-prod-header">
+                            <span>Producto</span>
+                            <span style="text-align:center">Cant</span>
+                            <span style="text-align:right">P. Unit</span>
+                            <span style="text-align:right">Subtotal</span>
+                        </div>
+                        ${c.productos.map(p => `
+                            <div class="cot-prod-row">
+                                <span style="font-weight:500">${p.producto}</span>
+                                <span style="text-align:center">${p.cantidad}</span>
+                                <span style="text-align:right">${fmt(p.precio_unit)}</span>
+                                <span style="text-align:right;font-weight:700">${fmt(p.subtotal)}</span>
+                            </div>
+                        `).join("") || '<div style="padding:8px 0;color:var(--text-muted);font-size:12px">Sin productos</div>'}
+                    </div>
+                </div>
+            </div>
+        `).join("");
+    } catch (e) { console.error(e); }
+}
+
+async function loadVendedorPage() {
+    await Promise.all([loadVendedorResumen(), loadVendedorCotizaciones()]);
+}
+
 // ── Page loader ─────────────────────────────────────────────────────────────
 
 async function loadPageData(page) {
@@ -360,6 +451,9 @@ async function loadPageData(page) {
             break;
         case "detalle":
             await loadDetalle();
+            break;
+        case "vendedor":
+            await loadVendedorPage();
             break;
     }
 }
@@ -413,6 +507,25 @@ async function init() {
     } catch (e) {
         console.error("Error cargando empresas", e);
     }
+
+    // Load vendedores
+    try {
+        const res = await fetch(`${API}/api/vendedores`);
+        const vendedores = await res.json();
+        const sel = document.getElementById("vendedorSelect");
+        vendedores.forEach(v => {
+            const opt = document.createElement("option");
+            opt.value = v.id;
+            opt.textContent = v.nombre;
+            sel.appendChild(opt);
+        });
+        sel.addEventListener("change", () => { if (currentPage === "vendedor") loadVendedorPage(); });
+        document.getElementById("estadoSelect").addEventListener("change", () => { if (currentPage === "vendedor") loadVendedorCotizaciones(); });
+        document.getElementById("periodoSelect").addEventListener("change", () => { if (currentPage === "vendedor") loadVendedorCotizaciones(); });
+    } catch (e) {
+        console.error("Error cargando vendedores", e);
+    }
+
     await loadPageData("dashboard");
 }
 

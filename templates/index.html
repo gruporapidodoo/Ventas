@@ -39,6 +39,9 @@
             <div class="nav-item" data-page="detalle">
                 <span class="nav-icon">&#9776;</span> Detalle Ordenes
             </div>
+            <div class="nav-item" data-page="vendedor">
+                <span class="nav-icon">&#9998;</span> Mi Detalle
+            </div>
         </div>
 
         <div class="sidebar-footer">
@@ -177,6 +180,75 @@
                         <tbody id="tbDetalle"></tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+
+        <!-- ═══ MI DETALLE ═══ -->
+        <div class="page-section" id="page-vendedor">
+            <!-- Filtros vendedor -->
+            <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center">
+                <select class="filter-select" id="vendedorSelect" style="min-width:200px">
+                    <option value="all">Todos los Vendedores</option>
+                </select>
+                <select class="filter-select" id="estadoSelect">
+                    <option value="all">Todos los Estados</option>
+                    <option value="sale">Confirmadas</option>
+                    <option value="draft">Borrador</option>
+                    <option value="sent">Enviadas</option>
+                    <option value="cancel">Canceladas</option>
+                </select>
+                <select class="filter-select" id="periodoSelect">
+                    <option value="hoy">Hoy</option>
+                    <option value="mes">Todo el Mes</option>
+                </select>
+            </div>
+
+            <!-- KPIs HOY -->
+            <div style="margin-bottom:8px;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Hoy</div>
+            <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
+                <div class="kpi-card">
+                    <div class="kpi-label">Cotizaciones Hoy</div>
+                    <div class="kpi-value" style="color:var(--text)" id="vkHoyTotal">--</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Cerradas Hoy</div>
+                    <div class="kpi-value positive" id="vkHoyCerradas">--</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Monto Hoy</div>
+                    <div class="kpi-value positive" id="vkHoyMonto" style="font-size:22px">--</div>
+                </div>
+            </div>
+
+            <!-- KPIs MES -->
+            <div style="margin-bottom:8px;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Acumulado del Mes</div>
+            <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:20px">
+                <div class="kpi-card">
+                    <div class="kpi-label">Total Mes</div>
+                    <div class="kpi-value" style="color:var(--text)" id="vkMesTotal">--</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Cerradas</div>
+                    <div class="kpi-value positive" id="vkMesCerradas">--</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Pendientes</div>
+                    <div class="kpi-value" style="color:var(--warning)" id="vkMesPendientes">--</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Tasa Cierre</div>
+                    <div class="kpi-value" style="color:var(--info)" id="vkTasa">--</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Monto Cerrado Mes</div>
+                    <div class="kpi-value positive" id="vkMesMonto" style="font-size:20px">--</div>
+                </div>
+            </div>
+
+            <!-- Lista cotizaciones con productos -->
+            <div class="card">
+                <div class="card-title" id="cotTitulo">Cotizaciones de Hoy</div>
+                <div id="cotizacionesList"></div>
             </div>
         </div>
 
