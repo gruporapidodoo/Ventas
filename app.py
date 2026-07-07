@@ -79,6 +79,13 @@ def api_login():
         session["user_name"] = result.get("name", login)
         session["login"] = login
 
+        # Empresas a las que este usuario de Odoo tiene acceso (res.users.company_ids)
+        try:
+            urec = odoo.call_kw("res.users", "read", [[uid], ["company_ids"]])
+            session["company_ids"] = urec[0].get("company_ids", []) if urec else []
+        except Exception:
+            session["company_ids"] = []
+
         return jsonify({"ok": True, "name": session["user_name"]})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -99,10 +106,24 @@ def api_me():
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+def _allowed_ids():
+    """IDs de empresas a las que el usuario logueado tiene acceso (de su usuario Odoo)."""
+    return session.get("company_ids") or []
+
+
 def _company_domain():
+    """Dominio de empresa SIEMPRE limitado a las empresas permitidas del usuario."""
+    allowed = _allowed_ids()
     cid = request.args.get("company_id")
     if cid and cid != "all":
-        return [("company_id", "=", int(cid))]
+        c = int(cid)
+        # Si pide una empresa a la que NO tiene acceso, se restringe a las permitidas
+        if allowed and c not in allowed:
+            return [("company_id", "in", allowed)]
+        return [("company_id", "=", c)]
+    # "all" o sin filtro -> solo las empresas permitidas
+    if allowed:
+        return [("company_id", "in", allowed)]
     return []
 
 
@@ -139,8 +160,10 @@ def index():
 @login_required
 def api_empresas():
     try:
+        allowed = _allowed_ids()
+        domain = [("id", "in", allowed)] if allowed else []
         companies = odoo.search_read(
-            "res.company", [], ["name", "currency_id"], order="name asc",
+            "res.company", domain, ["name", "currency_id"], order="name asc",
         )
         return jsonify([{
             "id": c["id"],
@@ -193,8 +216,12 @@ def api_ventas_resumen():
         ordenes_mes = odoo.search_count("sale.order", BASE_DOMAIN + _month_domain() + cd)
 
         cid = request.args.get("company_id")
-        if cid and cid != "all":
+        allowed = _allowed_ids()
+        if cid and cid != "all" and (not allowed or int(cid) in allowed):
             meta = METAS.get(int(cid), 0)
+        elif allowed:
+            # Suma solo de las metas de las empresas permitidas
+            meta = sum(v for k, v in METAS.items() if k in allowed)
         else:
             meta = sum(METAS.values())
 
@@ -293,9 +320,14 @@ def api_ventas_por_empresa():
         year = int(request.args.get("year", date.today().year))
         month = int(request.args.get("month", date.today().month))
 
+        allowed = _allowed_ids()
+        dom = BASE_DOMAIN + _month_domain(year, month)
+        if allowed:
+            dom += [("company_id", "in", allowed)]
+
         data = odoo.read_group(
             "sale.order",
-            domain=BASE_DOMAIN + _month_domain(year, month),
+            domain=dom,
             fields=["company_id", "amount_untaxed:sum", "__count"],
             groupby=["company_id"],
             orderby="amount_untaxed desc",
