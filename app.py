@@ -3,7 +3,7 @@
 import functools
 import requests
 from datetime import datetime, date
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for
+from flask import Flask, jsonify, render_template, request, session, redirect, url_for, g
 from flask_cors import CORS
 from odoo_client import odoo
 from config import FLASK_HOST, FLASK_PORT, FLASK_DEBUG, SECRET_KEY, ODOO_URL, ODOO_DB
@@ -107,8 +107,22 @@ def api_me():
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _allowed_ids():
-    """IDs de empresas a las que el usuario logueado tiene acceso (de su usuario Odoo)."""
-    return session.get("company_ids") or []
+    """IDs de empresas permitidas del usuario, leídas EN VIVO de Odoo en cada request
+    (así los permisos nuevos aparecen sin re-loguear). Se cachea por-request (flask.g)
+    para 1 sola lectura por página, con respaldo a la sesión si Odoo falla."""
+    if hasattr(g, "_allowed_cids"):
+        return g._allowed_cids
+    cids = session.get("company_ids") or []
+    uid = session.get("uid")
+    if uid:
+        try:
+            urec = odoo.call_kw("res.users", "read", [[uid], ["company_ids"]])
+            cids = urec[0].get("company_ids", []) if urec else cids
+            session["company_ids"] = cids  # refresca también la caché de sesión
+        except Exception:
+            pass
+    g._allowed_cids = cids
+    return cids
 
 
 def _company_domain():
