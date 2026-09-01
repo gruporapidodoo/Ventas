@@ -199,7 +199,7 @@
                     <div class="kpi-value" id="fFacturado" style="color:#10b981">$0.00</div>
                     <div class="kpi-sub" id="fFacturadoSub">ya salio la factura</div>
                 </div>
-                <div class="kpi-card">
+                <div class="kpi-card" id="fCardPendiente" style="cursor:pointer" title="Clic para ver solo las que faltan">
                     <div class="kpi-header"><span class="kpi-label">Falta por facturar</span></div>
                     <div class="kpi-value" id="fPendiente" style="color:#ef4444">$0.00</div>
                     <div class="kpi-sub" id="fPendienteSub">plata vendida sin cobrar</div>
@@ -208,18 +208,6 @@
                     <div class="kpi-header"><span class="kpi-label">Avance</span></div>
                     <div class="kpi-value" id="fAvance">0%</div>
                     <div class="kpi-sub">del vendido ya facturado</div>
-                </div>
-            </div>
-
-            <div class="card" style="margin-bottom:20px">
-                <div class="card-title">Como se lee</div>
-                <div style="padding:0 4px 4px;font-size:13px;color:var(--text-muted);line-height:1.7">
-                    <b>Vendido</b> es exactamente el mismo numero que muestra el resto del
-                    tablero: ordenes confirmadas del periodo, sin ITBMS. De ahi se parte, asi que
-                    <b>Vendido = Facturado + Falta por facturar</b> siempre cierra.<br>
-                    Lo facturado se mide linea por linea, no por orden: si una orden se facturo a
-                    medias, solo cuenta la parte facturada.
-                    <span id="fNotaRec"></span>
                 </div>
             </div>
 
@@ -244,7 +232,15 @@
             </div>
 
             <div class="card">
-                <div class="card-title">Orden por orden <span id="fDetTit" style="font-weight:400;color:var(--text-muted);font-size:13px"></span></div>
+                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+                    <div class="card-title" style="margin:0">Orden por orden</div>
+                    <select class="filter-select" id="fFiltro" style="min-width:230px">
+                        <option value="falta">Solo las que faltan por facturar</option>
+                        <option value="todas">Todas las ordenes</option>
+                    </select>
+                    <span id="fDetTit" style="color:var(--text-muted);font-size:13px"></span>
+                </div>
+                <div id="fNotaRec" style="font-size:12px;color:var(--text-muted);margin-bottom:10px"></div>
                 <div class="table-wrap">
                     <table>
                         <thead><tr><th>Orden</th><th>Cliente</th><th>Vendedor</th><th>Empresa</th><th>Fecha</th><th style="text-align:right">Vendido</th><th style="text-align:right">Facturado</th><th style="text-align:right">Falta</th><th>Estado</th></tr></thead>

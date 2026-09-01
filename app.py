@@ -676,18 +676,30 @@ def api_ventas_facturacion():
         # lo que mas falta por facturar primero: es la lista para accionar
         detalle.sort(key=lambda x: -x["pendiente"])
 
+        # Las que FALTAN van completas siempre (son las accionables); del resto
+        # se manda una muestra para no cargar la pagina de mas.
+        faltan = [d for d in detalle if d["pendiente"] > 0.005]
+        listas = [d for d in detalle if d["pendiente"] <= 0.005]
+        for d in faltan:
+            d["falta"] = True
+        for d in listas:
+            d["falta"] = False
+        lista = faltan + listas[:max(0, 300 - len(faltan))]
+
         return jsonify({
             "vendido": tot_v,
             "facturado": tot_f,
             "pendiente": round(tot_v - tot_f, 2),
             "avance": round(tot_f / tot_v * 100, 1) if tot_v else 0.0,
             "ordenes": len(orders),
-            "ordenes_pendientes": sum(1 for d in detalle if d["pendiente"] > 0.005),
+            "ordenes_pendientes": len(faltan),
             "recurrente": round(recurrente, 2),
             "por_empresa": cerrar(por_emp),
             "por_vendedor": cerrar(por_vend),
-            "detalle": detalle[:300],
+            "detalle": lista,
             "detalle_total": len(detalle),
+            "detalle_faltan": len(faltan),
+            "detalle_listas_mostradas": len(lista) - len(faltan),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500

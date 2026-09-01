@@ -515,15 +515,13 @@ async function loadFacturacion() {
         document.getElementById("fPendienteSub").textContent =
             d.ordenes_pendientes + " ordenes con algo sin facturar";
 
-        // aviso honesto sobre los recurrentes
+        // aviso sobre los recurrentes
         const nota = document.getElementById("fNotaRec");
-        if (d.recurrente > 0) {
-            nota.innerHTML = "<br><b>Ojo:</b> " + fmt(d.recurrente) +
-                " del periodo son servicios recurrentes. En esos Odoo reinicia el conteo " +
-                "en cada ciclo, asi que su parte facturada puede quedarse corta.";
-        } else {
-            nota.innerHTML = "";
-        }
+        nota.innerHTML = d.recurrente > 0
+            ? "Ojo: " + fmt(d.recurrente) + " del periodo son servicios recurrentes. " +
+              "En esos Odoo reinicia el conteo en cada ciclo, asi que su parte facturada " +
+              "puede quedarse corta."
+            : "";
 
         const vacio = (n) => `<tr><td colspan="${n}" style="text-align:center;color:var(--text-muted)">Sin ordenes en el periodo</td></tr>`;
 
@@ -532,30 +530,54 @@ async function loadFacturacion() {
         document.getElementById("tbFactVendedor").innerHTML =
             d.por_vendedor.map(filaFact).join("") || vacio(6);
 
-        document.getElementById("fDetTit").textContent =
-            d.detalle_total > d.detalle.length
-                ? "(las " + d.detalle.length + " con mas pendiente, de " + d.detalle_total + ")"
-                : "(" + d.detalle_total + " ordenes, las que mas faltan primero)";
-
-        document.getElementById("tbFactDetalle").innerHTML = d.detalle.map(o => {
-            const falta = o.pendiente > 0.005;
-            return `
-            <tr>
-                <td style="font-weight:600">${o.numero}</td>
-                <td>${o.cliente}</td>
-                <td>${o.vendedor}</td>
-                <td style="font-size:12px;color:var(--text-muted)">${o.empresa}</td>
-                <td>${o.fecha}</td>
-                <td style="text-align:right">${fmt(o.vendido)}</td>
-                <td style="text-align:right;color:#10b981">${fmt(o.facturado)}</td>
-                <td style="text-align:right;font-weight:700;color:${falta ? "#ef4444" : "var(--text-muted)"}">${fmt(o.pendiente)}</td>
-                <td style="font-size:12px">${o.estado}</td>
-            </tr>`;
-        }).join("") || vacio(9);
+        FACT_DATA = d;
+        pintarFactDetalle();
     } catch (e) {
         showError("Error: " + e.message);
     }
 }
+
+// La ultima respuesta, para poder filtrar sin volver a pedirla
+let FACT_DATA = null;
+
+function pintarFactDetalle() {
+    if (!FACT_DATA) return;
+    const d = FACT_DATA;
+    const modo = document.getElementById("fFiltro").value;
+    const filas = modo === "falta" ? d.detalle.filter(o => o.falta) : d.detalle;
+
+    document.getElementById("fDetTit").textContent =
+        modo === "falta"
+            ? filas.length + " de " + d.detalle_total + " ordenes tienen algo sin facturar"
+            : "mostrando " + filas.length + " de " + d.detalle_total + " ordenes";
+
+    const vacio = modo === "falta"
+        ? "Todo lo vendido en el periodo ya esta facturado"
+        : "Sin ordenes en el periodo";
+
+    document.getElementById("tbFactDetalle").innerHTML = filas.map(o => `
+        <tr>
+            <td style="font-weight:600">${o.numero}</td>
+            <td>${o.cliente}</td>
+            <td>${o.vendedor}</td>
+            <td style="font-size:12px;color:var(--text-muted)">${o.empresa}</td>
+            <td>${o.fecha}</td>
+            <td style="text-align:right">${fmt(o.vendido)}</td>
+            <td style="text-align:right;color:#10b981">${fmt(o.facturado)}</td>
+            <td style="text-align:right;font-weight:700;color:${o.falta ? "#ef4444" : "var(--text-muted)"}">${fmt(o.pendiente)}</td>
+            <td style="font-size:12px">${o.estado}</td>
+        </tr>`).join("") ||
+        `<tr><td colspan="9" style="text-align:center;color:var(--text-muted)">${vacio}</td></tr>`;
+}
+
+document.getElementById("fFiltro").addEventListener("change", pintarFactDetalle);
+
+// Clic en la tarjeta roja -> deja la lista en "solo las que faltan"
+document.getElementById("fCardPendiente").addEventListener("click", () => {
+    document.getElementById("fFiltro").value = "falta";
+    pintarFactDetalle();
+    document.getElementById("fFiltro").scrollIntoView({ behavior: "smooth", block: "center" });
+});
 
 // ── Init ────────────────────────────────────────────────────────────────────
 
