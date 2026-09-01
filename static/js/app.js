@@ -455,6 +455,9 @@ async function loadPageData(page) {
         case "vendedor":
             await loadVendedorPage();
             break;
+        case "facturacion":
+            await loadFacturacion();
+            break;
     }
 }
 
@@ -472,6 +475,87 @@ async function refreshData() {
 // ── Auto-refresh every 5s ────────────────────────────────────────────────────
 
 setInterval(() => loadPageData(currentPage), 5000);
+
+// ── Ventas vs Facturado ─────────────────────────────────────────────────────
+// Agregado aparte, sin tocar nada de lo de arriba. El titulo de la pagina se
+// registra aqui porque "titles" ya estaba definido antes.
+
+titles.facturacion = "Ventas vs Facturado";
+
+function pct(n) {
+    return (n || 0).toFixed(1) + "%";
+}
+
+function filaFact(g) {
+    const falta = g.pendiente > 0.005;
+    return `
+        <tr>
+            <td style="font-weight:600">${g.nombre}</td>
+            <td style="text-align:right">${g.ordenes}</td>
+            <td style="text-align:right">${fmt(g.vendido)}</td>
+            <td style="text-align:right;color:#10b981;font-weight:600">${fmt(g.facturado)}</td>
+            <td style="text-align:right;font-weight:700;color:${falta ? "#ef4444" : "var(--text-muted)"}">${fmt(g.pendiente)}</td>
+            <td style="text-align:right">${pct(g.avance)}</td>
+        </tr>`;
+}
+
+async function loadFacturacion() {
+    try {
+        const d = await api("/api/ventas/facturacion");
+
+        document.getElementById("fVendido").textContent = fmt(d.vendido);
+        document.getElementById("fFacturado").textContent = fmt(d.facturado);
+        document.getElementById("fPendiente").textContent = fmt(d.pendiente);
+        document.getElementById("fAvance").textContent = pct(d.avance);
+
+        document.getElementById("fVendidoSub").textContent =
+            d.ordenes + " ordenes confirmadas del periodo";
+        document.getElementById("fFacturadoSub").textContent =
+            pct(d.avance) + " de lo vendido";
+        document.getElementById("fPendienteSub").textContent =
+            d.ordenes_pendientes + " ordenes con algo sin facturar";
+
+        // aviso honesto sobre los recurrentes
+        const nota = document.getElementById("fNotaRec");
+        if (d.recurrente > 0) {
+            nota.innerHTML = "<br><b>Ojo:</b> " + fmt(d.recurrente) +
+                " del periodo son servicios recurrentes. En esos Odoo reinicia el conteo " +
+                "en cada ciclo, asi que su parte facturada puede quedarse corta.";
+        } else {
+            nota.innerHTML = "";
+        }
+
+        const vacio = (n) => `<tr><td colspan="${n}" style="text-align:center;color:var(--text-muted)">Sin ordenes en el periodo</td></tr>`;
+
+        document.getElementById("tbFactEmpresa").innerHTML =
+            d.por_empresa.map(filaFact).join("") || vacio(6);
+        document.getElementById("tbFactVendedor").innerHTML =
+            d.por_vendedor.map(filaFact).join("") || vacio(6);
+
+        document.getElementById("fDetTit").textContent =
+            d.detalle_total > d.detalle.length
+                ? "(las " + d.detalle.length + " con mas pendiente, de " + d.detalle_total + ")"
+                : "(" + d.detalle_total + " ordenes, las que mas faltan primero)";
+
+        document.getElementById("tbFactDetalle").innerHTML = d.detalle.map(o => {
+            const falta = o.pendiente > 0.005;
+            return `
+            <tr>
+                <td style="font-weight:600">${o.numero}</td>
+                <td>${o.cliente}</td>
+                <td>${o.vendedor}</td>
+                <td style="font-size:12px;color:var(--text-muted)">${o.empresa}</td>
+                <td>${o.fecha}</td>
+                <td style="text-align:right">${fmt(o.vendido)}</td>
+                <td style="text-align:right;color:#10b981">${fmt(o.facturado)}</td>
+                <td style="text-align:right;font-weight:700;color:${falta ? "#ef4444" : "var(--text-muted)"}">${fmt(o.pendiente)}</td>
+                <td style="font-size:12px">${o.estado}</td>
+            </tr>`;
+        }).join("") || vacio(9);
+    } catch (e) {
+        showError("Error: " + e.message);
+    }
+}
 
 // ── Init ────────────────────────────────────────────────────────────────────
 

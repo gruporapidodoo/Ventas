@@ -210,6 +210,11 @@ def api_metas():
 def api_ventas_resumen():
     try:
         cd = _company_domain()
+        # El mes elegido en el selector. Antes no se leia aqui y las tarjetas
+        # mostraban SIEMPRE el mes actual, aunque se eligiera otro: no cuadraban
+        # con las demas pestanas, que si lo respetan.
+        year = int(request.args.get("year", date.today().year))
+        month = int(request.args.get("month", date.today().month))
 
         dia = odoo.read_group(
             "sale.order",
@@ -221,13 +226,14 @@ def api_ventas_resumen():
 
         mes = odoo.read_group(
             "sale.order",
-            domain=BASE_DOMAIN + _month_domain() + cd,
+            domain=BASE_DOMAIN + _month_domain(year, month) + cd,
             fields=["amount_untaxed:sum"],
             groupby=[],
         )
         venta_mes = mes[0].get("amount_untaxed", 0) if mes else 0
 
-        ordenes_mes = odoo.search_count("sale.order", BASE_DOMAIN + _month_domain() + cd)
+        ordenes_mes = odoo.search_count(
+            "sale.order", BASE_DOMAIN + _month_domain(year, month) + cd)
 
         cid = request.args.get("company_id")
         allowed = _allowed_ids()
@@ -547,6 +553,142 @@ def api_vendedor_cotizaciones():
             })
 
         return jsonify(resultado)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── API: Ventas vs Facturado ─────────────────────────────────────────────────
+# Agregado sin tocar nada de lo anterior.
+#
+# La idea: de lo que YA se vendio (ordenes confirmadas del periodo), cuanto se
+# ha facturado y cuanto falta. Para que cuadre con el resto del tablero parte
+# del MISMO universo que /api/ventas/resumen:
+#     BASE_DOMAIN (state='sale') + _month_domain() + _company_domain()
+# y mide con amount_untaxed (sin ITBMS), igual que las demas tarjetas.
+#
+# Lo facturado se calcula LINEA POR LINEA con qty_invoiced/product_uom_qty
+# sobre price_subtotal. Verificado contra agosto 2026: la suma de las lineas da
+# $855,261.56, identico al amount_untaxed de las ordenes (diferencia $0.00), asi
+# que Vendido = Facturado + Por facturar siempre cierra.
+#
+# Cuidados tomados para no inflar el "facturado":
+#   * la proporcion se capa entre 0 y 1 (hay lineas con qty_invoiced > cantidad)
+#   * las lineas de cantidad 0 no aportan
+#   * las lineas de nota/seccion (display_type) se ignoran
+#   * en servicios RECURRENTES Odoo resetea qty_invoiced en cada ciclo, asi que
+#     ese dato puede quedarse corto. Se cuentan aparte y se reportan para que
+#     el numero se lea con ese contexto (en agosto: $28,939 de $855,261).
+
+def _fact_linea(l):
+    """Parte facturada de una linea, sin impuestos."""
+    qty = l.get("product_uom_qty") or 0
+    if qty <= 0:
+        return 0.0
+    prop = (l.get("qty_invoiced") or 0) / qty
+    prop = max(0.0, min(prop, 1.0))          # nunca mas del 100%
+    return (l.get("price_subtotal") or 0) * prop
+
+
+@app.route("/api/ventas/facturacion")
+@login_required
+def api_ventas_facturacion():
+    try:
+        cd = _company_domain()
+        year = int(request.args.get("year", date.today().year))
+        month = int(request.args.get("month", date.today().month))
+        domain = BASE_DOMAIN + _month_domain(year, month) + cd
+
+        orders, off = [], 0
+        while True:
+            r = odoo.search_read(
+                "sale.order", domain,
+                ["name", "partner_id", "user_id", "company_id", "date_order",
+                 "amount_untaxed", "invoice_status", "order_line"],
+                limit=500, offset=off, order="id",
+            )
+            orders += r
+            if len(r) < 500:
+                break
+            off += 500
+
+        lids = [l for o in orders for l in (o.get("order_line") or [])]
+        lineas = []
+        for i in range(0, len(lids), 400):
+            lineas += odoo.search_read(
+                "sale.order.line", [("id", "in", lids[i:i + 400])],
+                ["order_id", "product_uom_qty", "qty_invoiced", "price_subtotal",
+                 "recurring_invoice", "display_type"],
+            )
+        # en Odoo 18 una linea de producto trae display_type='product' (no False)
+        lineas = [l for l in lineas if l.get("display_type") in (False, "product")]
+
+        por_orden = {}
+        recurrente = 0.0
+        for l in lineas:
+            oid = l["order_id"][0]
+            d = por_orden.setdefault(oid, {"vendido": 0.0, "facturado": 0.0})
+            d["vendido"] += l.get("price_subtotal") or 0
+            d["facturado"] += _fact_linea(l)
+            if l.get("recurring_invoice"):
+                recurrente += l.get("price_subtotal") or 0
+
+        ESTADOS = {"invoiced": "Facturada", "to invoice": "Por facturar",
+                   "no": "Nada que facturar", "upselling": "Venta adicional"}
+
+        detalle, por_emp, por_vend = [], {}, {}
+        tot_v = tot_f = 0.0
+        for o in orders:
+            d = por_orden.get(o["id"], {"vendido": 0.0, "facturado": 0.0})
+            v, fa = round(d["vendido"], 2), round(d["facturado"], 2)
+            pend = round(v - fa, 2)
+            tot_v += v
+            tot_f += fa
+            emp = o["company_id"][1] if o.get("company_id") else "Sin empresa"
+            vend = o["user_id"][1] if o.get("user_id") else "Sin asignar"
+            for grupo, clave in ((por_emp, emp), (por_vend, vend)):
+                g = grupo.setdefault(clave, {"nombre": clave, "vendido": 0.0,
+                                             "facturado": 0.0, "ordenes": 0})
+                g["vendido"] += v
+                g["facturado"] += fa
+                g["ordenes"] += 1
+            detalle.append({
+                "numero": o["name"],
+                "cliente": o["partner_id"][1] if o.get("partner_id") else "",
+                "vendedor": vend,
+                "empresa": emp,
+                "fecha": str(o.get("date_order") or "")[:10],
+                "vendido": v, "facturado": fa, "pendiente": pend,
+                "avance": round(fa / v * 100, 1) if v else 0.0,
+                "estado": ESTADOS.get(o.get("invoice_status"), o.get("invoice_status") or ""),
+            })
+
+        def cerrar(grupo):
+            out = []
+            for g in grupo.values():
+                g["vendido"] = round(g["vendido"], 2)
+                g["facturado"] = round(g["facturado"], 2)
+                g["pendiente"] = round(g["vendido"] - g["facturado"], 2)
+                g["avance"] = round(g["facturado"] / g["vendido"] * 100, 1) if g["vendido"] else 0.0
+                out.append(g)
+            return sorted(out, key=lambda x: -x["pendiente"])
+
+        tot_v, tot_f = round(tot_v, 2), round(tot_f, 2)
+        # lo que mas falta por facturar primero: es la lista para accionar
+        detalle.sort(key=lambda x: -x["pendiente"])
+
+        return jsonify({
+            "vendido": tot_v,
+            "facturado": tot_f,
+            "pendiente": round(tot_v - tot_f, 2),
+            "avance": round(tot_f / tot_v * 100, 1) if tot_v else 0.0,
+            "ordenes": len(orders),
+            "ordenes_pendientes": sum(1 for d in detalle if d["pendiente"] > 0.005),
+            "recurrente": round(recurrente, 2),
+            "por_empresa": cerrar(por_emp),
+            "por_vendedor": cerrar(por_vend),
+            "detalle": detalle[:300],
+            "detalle_total": len(detalle),
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

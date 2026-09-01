@@ -39,6 +39,9 @@
             <div class="nav-item" data-page="detalle">
                 <span class="nav-icon">&#9776;</span> Detalle Ordenes
             </div>
+            <div class="nav-item" data-page="facturacion">
+                <span class="nav-icon">&#9878;</span> Ventas vs Facturado
+            </div>
             <div class="nav-item" data-page="vendedor">
                 <span class="nav-icon">&#9998;</span> Mi Detalle
             </div>
@@ -178,6 +181,74 @@
                     <table>
                         <thead><tr><th>Orden</th><th>Cliente</th><th>Vendedor</th><th>Empresa</th><th>Fecha</th><th style="text-align:right">Monto (sin ITBMS)</th></tr></thead>
                         <tbody id="tbDetalle"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ VENTAS VS FACTURADO ═══ -->
+        <div class="page-section" id="page-facturacion">
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-header"><span class="kpi-label">Vendido</span></div>
+                    <div class="kpi-value" id="fVendido">$0.00</div>
+                    <div class="kpi-sub" id="fVendidoSub">ordenes confirmadas del periodo</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-header"><span class="kpi-label">Facturado</span></div>
+                    <div class="kpi-value" id="fFacturado" style="color:#10b981">$0.00</div>
+                    <div class="kpi-sub" id="fFacturadoSub">ya salio la factura</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-header"><span class="kpi-label">Falta por facturar</span></div>
+                    <div class="kpi-value" id="fPendiente" style="color:#ef4444">$0.00</div>
+                    <div class="kpi-sub" id="fPendienteSub">plata vendida sin cobrar</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-header"><span class="kpi-label">Avance</span></div>
+                    <div class="kpi-value" id="fAvance">0%</div>
+                    <div class="kpi-sub">del vendido ya facturado</div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom:20px">
+                <div class="card-title">Como se lee</div>
+                <div style="padding:0 4px 4px;font-size:13px;color:var(--text-muted);line-height:1.7">
+                    <b>Vendido</b> es exactamente el mismo numero que muestra el resto del
+                    tablero: ordenes confirmadas del periodo, sin ITBMS. De ahi se parte, asi que
+                    <b>Vendido = Facturado + Falta por facturar</b> siempre cierra.<br>
+                    Lo facturado se mide linea por linea, no por orden: si una orden se facturo a
+                    medias, solo cuenta la parte facturada.
+                    <span id="fNotaRec"></span>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom:20px">
+                <div class="card-title">Por Empresa</div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Empresa</th><th style="text-align:right">Ordenes</th><th style="text-align:right">Vendido</th><th style="text-align:right">Facturado</th><th style="text-align:right">Falta</th><th style="text-align:right">Avance</th></tr></thead>
+                        <tbody id="tbFactEmpresa"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom:20px">
+                <div class="card-title">Por Vendedor</div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Vendedor</th><th style="text-align:right">Ordenes</th><th style="text-align:right">Vendido</th><th style="text-align:right">Facturado</th><th style="text-align:right">Falta</th><th style="text-align:right">Avance</th></tr></thead>
+                        <tbody id="tbFactVendedor"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Orden por orden <span id="fDetTit" style="font-weight:400;color:var(--text-muted);font-size:13px"></span></div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Orden</th><th>Cliente</th><th>Vendedor</th><th>Empresa</th><th>Fecha</th><th style="text-align:right">Vendido</th><th style="text-align:right">Facturado</th><th style="text-align:right">Falta</th><th>Estado</th></tr></thead>
+                        <tbody id="tbFactDetalle"></tbody>
                     </table>
                 </div>
             </div>

@@ -12,7 +12,7 @@ if env_file.exists():
             os.environ.setdefault(key.strip(), val.strip())
 
 ODOO_URL = os.environ.get("ODOO_URL", "https://pestbuster.odoo.com")
-ODOO_DB = os.environ.get("ODOO_DB", "psdc-inc-pestbuster-prod-20747552")
+ODOO_DB = os.environ.get("ODOO_DB", "fishers-pa-gruporapid-main-34666988")
 
 # Credenciales: DEBEN estar en variables de entorno en produccion
 ODOO_USER = os.environ["ODOO_USER"]
