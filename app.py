@@ -2,7 +2,7 @@
 
 import functools
 import requests
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from flask import Flask, jsonify, render_template, request, session, redirect, url_for, g
 from flask_cors import CORS
 from odoo_client import odoo
@@ -141,20 +141,42 @@ def _company_domain():
     return []
 
 
+# Odoo guarda date_order en UTC y Panama va 5 horas atras. Los dias y los meses se
+# cortan a medianoche de PANAMA (= 05:00 UTC); si no, lo que se confirma despues de
+# las 7 p. m. cae en el dia/mes siguiente (ej. ventas del 30-sep salian en octubre).
+PANAMA_OFFSET = timedelta(hours=5)
+
+
+def _hoy_pa():
+    """Fecha de hoy en Panama (el servidor de Render corre en UTC)."""
+    return (datetime.utcnow() - PANAMA_OFFSET).date()
+
+
+def _fecha_pa(valor):
+    """date_order (UTC) -> fecha 'YYYY-MM-DD' en hora de Panama."""
+    if not valor:
+        return ""
+    try:
+        return (datetime.strptime(str(valor)[:19], "%Y-%m-%d %H:%M:%S") - PANAMA_OFFSET).date().isoformat()
+    except ValueError:
+        return str(valor)[:10]
+
+
 def _today_domain():
-    today = date.today().isoformat()
-    return [("date_order", ">=", f"{today} 00:00:00"), ("date_order", "<=", f"{today} 23:59:59")]
+    today = _hoy_pa()
+    return [("date_order", ">=", f"{today.isoformat()} 05:00:00"),
+            ("date_order", "<", f"{(today + timedelta(days=1)).isoformat()} 05:00:00")]
 
 
 def _month_domain(year=None, month=None):
-    today = date.today()
+    today = _hoy_pa()
     y = year or today.year
     m = month or today.month
     if m == 12:
         end = f"{y + 1}-01-01"
     else:
         end = f"{y}-{m + 1:02d}-01"
-    return [("date_order", ">=", f"{y}-{m:02d}-01"), ("date_order", "<", end)]
+    return [("date_order", ">=", f"{y}-{m:02d}-01 05:00:00"), ("date_order", "<", f"{end} 05:00:00")]
 
 
 BASE_DOMAIN = [("state", "=", "sale")]
@@ -213,8 +235,8 @@ def api_ventas_resumen():
         # El mes elegido en el selector. Antes no se leia aqui y las tarjetas
         # mostraban SIEMPRE el mes actual, aunque se eligiera otro: no cuadraban
         # con las demas pestanas, que si lo respetan.
-        year = int(request.args.get("year", date.today().year))
-        month = int(request.args.get("month", date.today().month))
+        year = int(request.args.get("year", _hoy_pa().year))
+        month = int(request.args.get("month", _hoy_pa().month))
 
         dia = odoo.read_group(
             "sale.order",
@@ -287,8 +309,8 @@ def api_ventas_dia():
 def api_ventas_mes():
     try:
         cd = _company_domain()
-        year = int(request.args.get("year", date.today().year))
-        month = int(request.args.get("month", date.today().month))
+        year = int(request.args.get("year", _hoy_pa().year))
+        month = int(request.args.get("month", _hoy_pa().month))
 
         data = odoo.read_group(
             "sale.order",
@@ -314,15 +336,17 @@ def api_ventas_mes():
 def api_ventas_diario():
     try:
         cd = _company_domain()
-        year = int(request.args.get("year", date.today().year))
-        month = int(request.args.get("month", date.today().month))
+        year = int(request.args.get("year", _hoy_pa().year))
+        month = int(request.args.get("month", _hoy_pa().month))
 
-        data = odoo.read_group(
-            "sale.order",
-            domain=BASE_DOMAIN + _month_domain(year, month) + cd,
-            fields=["date_order", "amount_untaxed:sum"],
-            groupby=["date_order:day"],
-        )
+        # tz=America/Panama: sin esto Odoo agrupa los dias en UTC y las ventas de la
+        # noche se suman al dia siguiente.
+        data = odoo.call_kw("sale.order", "read_group", [], {
+            "domain": BASE_DOMAIN + _month_domain(year, month) + cd,
+            "fields": ["date_order", "amount_untaxed:sum"],
+            "groupby": ["date_order:day"],
+            "context": {"tz": "America/Panama"},
+        })
         return jsonify({
             "dias": [d.get("date_order:day", "") for d in data],
             "montos": [d.get("amount_untaxed", 0) for d in data],
@@ -337,8 +361,8 @@ def api_ventas_diario():
 @login_required
 def api_ventas_por_empresa():
     try:
-        year = int(request.args.get("year", date.today().year))
-        month = int(request.args.get("month", date.today().month))
+        year = int(request.args.get("year", _hoy_pa().year))
+        month = int(request.args.get("month", _hoy_pa().month))
 
         allowed = _allowed_ids()
         dom = BASE_DOMAIN + _month_domain(year, month)
@@ -371,8 +395,8 @@ def api_ventas_por_empresa():
 def api_ventas_detalle():
     try:
         cd = _company_domain()
-        year = int(request.args.get("year", date.today().year))
-        month = int(request.args.get("month", date.today().month))
+        year = int(request.args.get("year", _hoy_pa().year))
+        month = int(request.args.get("month", _hoy_pa().month))
 
         orders = odoo.search_read(
             "sale.order",
@@ -383,7 +407,7 @@ def api_ventas_detalle():
         return jsonify([{
             "numero": o["name"],
             "cliente": o["partner_id"][1] if o.get("partner_id") else "",
-            "fecha": o["date_order"][:10] if o.get("date_order") else "",
+            "fecha": _fecha_pa(o.get("date_order")),
             "monto": o["amount_untaxed"],
             "vendedor": o["user_id"][1] if o.get("user_id") else "",
             "empresa": o["company_id"][1] if o.get("company_id") else "",
@@ -423,8 +447,8 @@ def api_vendedor_resumen():
     """KPIs de un vendedor: hoy + acumulado del mes."""
     try:
         cd = _company_domain()
-        year = int(request.args.get("year", date.today().year))
-        month = int(request.args.get("month", date.today().month))
+        year = int(request.args.get("year", _hoy_pa().year))
+        month = int(request.args.get("month", _hoy_pa().month))
         vendedor_id = request.args.get("vendedor_id")
 
         domain_vendor = cd[:]
@@ -432,8 +456,7 @@ def api_vendedor_resumen():
             domain_vendor += [("user_id", "=", int(vendedor_id))]
 
         # --- HOY ---
-        today = date.today().isoformat()
-        domain_hoy = domain_vendor + [("date_order", ">=", f"{today} 00:00:00"), ("date_order", "<=", f"{today} 23:59:59")]
+        domain_hoy = domain_vendor + _today_domain()
 
         hoy_counts = {}
         for state in ["draft", "sent", "sale", "cancel"]:
@@ -488,15 +511,14 @@ def api_vendedor_cotizaciones():
     """Todas las cotizaciones de un vendedor con productos."""
     try:
         cd = _company_domain()
-        year = int(request.args.get("year", date.today().year))
-        month = int(request.args.get("month", date.today().month))
+        year = int(request.args.get("year", _hoy_pa().year))
+        month = int(request.args.get("month", _hoy_pa().month))
         vendedor_id = request.args.get("vendedor_id")
         estado = request.args.get("estado", "all")  # all, sale, draft, sent, cancel
         periodo = request.args.get("periodo", "hoy")  # hoy, mes
 
         if periodo == "hoy":
-            today = date.today().isoformat()
-            domain = [("date_order", ">=", f"{today} 00:00:00"), ("date_order", "<=", f"{today} 23:59:59")] + cd
+            domain = _today_domain() + cd
         else:
             domain = _month_domain(year, month) + cd
         if vendedor_id and vendedor_id != "all":
@@ -543,7 +565,7 @@ def api_vendedor_cotizaciones():
             resultado.append({
                 "numero": o["name"],
                 "cliente": o["partner_id"][1] if o.get("partner_id") else "",
-                "fecha": o["date_order"][:10] if o.get("date_order") else "",
+                "fecha": _fecha_pa(o.get("date_order")),
                 "monto": o["amount_untaxed"],
                 "estado": estados.get(o["state"], o["state"]),
                 "estado_key": o["state"],
@@ -594,8 +616,8 @@ def _fact_linea(l):
 def api_ventas_facturacion():
     try:
         cd = _company_domain()
-        year = int(request.args.get("year", date.today().year))
-        month = int(request.args.get("month", date.today().month))
+        year = int(request.args.get("year", _hoy_pa().year))
+        month = int(request.args.get("month", _hoy_pa().month))
         domain = BASE_DOMAIN + _month_domain(year, month) + cd
 
         orders, off = [], 0
@@ -656,7 +678,7 @@ def api_ventas_facturacion():
                 "cliente": o["partner_id"][1] if o.get("partner_id") else "",
                 "vendedor": vend,
                 "empresa": emp,
-                "fecha": str(o.get("date_order") or "")[:10],
+                "fecha": _fecha_pa(o.get("date_order")),
                 "vendido": v, "facturado": fa, "pendiente": pend,
                 "avance": round(fa / v * 100, 1) if v else 0.0,
                 "estado": ESTADOS.get(o.get("invoice_status"), o.get("invoice_status") or ""),
